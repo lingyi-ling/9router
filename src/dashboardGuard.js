@@ -91,6 +91,8 @@ const LOCAL_ONLY_PATHS = [
   "/api/headroom/proxy",
   // [qoder 权益 v0.6.0] 本机凭证扫描会读取桌面/CLI 凭证并拉起 PowerShell 做 DPAPI 解密，限制为仅本机可访问
   "/api/qoder/credentials/",
+  // [workbuddy 本机凭证 v0.8.2] 扫描会读取本机凭证文件并拉起 WorkBuddy 客户端取 build key 解密，限制为仅本机可访问
+  "/api/codebuddy/credentials/",
 ];
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);

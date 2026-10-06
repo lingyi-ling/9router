@@ -92,3 +92,25 @@ describe("codebuddy 连登闭环（回归：scheduler 引错模块会静默空�
     expect(summary.u1.drawn).toBe(1);
   });
 });
+
+describe("codebuddy 本机凭证扫描（v0.8.2）", () => {
+  it("localCredentials.js 导出扫描/导入/能力自检", async () => {
+    const m = await import("../../open-sse/codebuddy/localCredentials.js");
+    expect(typeof m.scanLocalCredentials).toBe("function");
+    expect(typeof m.readCredentialForImport).toBe("function");
+    expect(typeof m.localCredentialScanCapability).toBe("function");
+    expect(typeof m.readBuildKeyPayload).toBe("function");
+  });
+
+  it("未安装客户端时扫描优雅降级（不抛异常，返回数组）", async () => {
+    const { scanLocalCredentials, localCredentialScanCapability } = await import(
+      "../../open-sse/codebuddy/localCredentials.js"
+    );
+    const items = scanLocalCredentials();
+    expect(Array.isArray(items)).toBe(true);
+    // 能力自检必须稳定返回平台与待扫描目录清单
+    const cap = localCredentialScanCapability();
+    expect(typeof cap.platform).toBe("string");
+    expect(Array.isArray(cap.authDirs)).toBe(true);
+  });
+});

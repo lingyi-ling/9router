@@ -3,7 +3,7 @@
 // CodeBuddy 激励中心：账号总览 + 一键操作（签到/活跃/旅行/保活/一键完成任务）+ 定时调度开关。
 // v0.8.0 移植自 workbuddy2api-panel 的面板，适配 9router 的 UI 组件与 /api 路由。
 import { useState, useEffect, useCallback } from "react";
-import { Card, Button } from "@/shared/components";
+import { Badge, Button, Card, Modal } from "@/shared/components";
 
 const ACTIONS = [
   { id: "checkin", label: "立即签到", desc: "含连登兑换 + 抽奖闭环" },
@@ -20,6 +20,10 @@ export default function CodeBuddyRewardsClient() {
   const [logLines, setLogLines] = useState([]);
   const [tasks, setTasks] = useState(null);
   const [tasksFor, setTasksFor] = useState("");
+  // v0.8.2：本机凭证扫描（只读探测 + 二次确认导入）
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanLoading, setScanLoading] = useState(false);
 
   const pushLog = (msg) =>
     setLogLines((prev) => [`${new Date().toLocaleTimeString()} ${msg}`, ...prev].slice(0, 200));
@@ -82,6 +86,43 @@ export default function CodeBuddyRewardsClient() {
     }
   };
 
+  // v0.8.2：只读扫描本机已登录凭证（不返回令牌）
+  const openScan = async () => {
+    setScanOpen(true);
+    setScanLoading(true);
+    setScanResult(null);
+    try {
+      const res = await fetch("/api/codebuddy/credentials/scan");
+      setScanResult(await res.json());
+    } catch (err) {
+      setScanResult({ items: [], error: err.message });
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  // v0.8.2：确认后把凭证写入账号池
+  const importCredential = async (body) => {
+    setBusy("import");
+    try {
+      const res = await fetch("/api/codebuddy/credentials/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.error) pushLog(`导入失败: ${data.error}`);
+      (data.imported || []).forEach((i) => pushLog(`已导入 ${i.provider} / ${i.nickname}`));
+      (data.errors || []).forEach((e) => pushLog(`导入告警: ${e}`));
+      setScanOpen(false);
+      await refresh();
+    } catch (err) {
+      pushLog(`导入失败: ${err.message}`);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const toggleScheduler = () =>
     runAction(scheduler.status === "running" ? "scheduler-stop" : "scheduler-start");
 
@@ -105,6 +146,7 @@ export default function CodeBuddyRewardsClient() {
               {scheduler.status === "running" ? "停止调度" : "启动调度"}
             </Button>
             <Button variant="secondary" onClick={refresh} disabled={!!busy}>刷新</Button>
+            <Button variant="secondary" onClick={openScan} disabled={!!busy}>扫描本机凭证</Button>
           </div>
         </div>
       </Card>
@@ -209,6 +251,63 @@ export default function CodeBuddyRewardsClient() {
           {logLines.length === 0 ? <p className="opacity-60">暂无日志</p> : logLines.map((l, i) => <div key={i}>{l}</div>)}
         </div>
       </Card>
+
+      {/* v0.8.2：本机凭证扫描结果（不显示任何令牌，导入需二次确认） */}
+      <Modal isOpen={scanOpen} onClose={() => setScanOpen(false)} title="扫描本机已登录凭证">
+        <div className="space-y-3">
+          <p className="text-sm opacity-70">
+            只读探测本机 WorkBuddy / CodeBuddy 客户端已登录的凭证（<b>不显示任何令牌</b>）。
+            导入会把凭证写入账号池，请在确认账号与区域后手动点击「导入」。
+          </p>
+          {scanLoading ? (
+            <p className="text-sm opacity-70">扫描中…</p>
+          ) : scanResult?.error ? (
+            <p className="text-sm text-red-400">! {scanResult.error}</p>
+          ) : (scanResult?.items || []).length === 0 ? (
+            <p className="text-sm opacity-70">未发现本机凭证（未登录或未安装对应客户端）。</p>
+          ) : (
+            <div className="divide-y divide-white/10">
+              {scanResult.items.map((it) => (
+                <div key={it.path} className="py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={it.realm === "cn" ? "warning" : "info"}>{it.realmName}</Badge>
+                      {it.valid ? <Badge variant="success">可导入</Badge> : <Badge variant="default">不可用</Badge>}
+                    </div>
+                    <p className="mt-1 text-xs opacity-70 truncate">
+                      {it.nickname || it.uid || it.file}
+                      {it.uin ? ` · uin ${it.uin}` : ""}
+                      {it.expiresIn ? ` · 剩余 ${it.expiresIn}` : ""}
+                    </p>
+                    {it.error && <p className="mt-1 text-xs text-red-400">{it.error}</p>}
+                  </div>
+                  <Button
+                    variant={it.valid ? "primary" : "secondary"}
+                    disabled={!it.valid || busy === "import"}
+                    onClick={() => importCredential({ path: it.path })}
+                  >
+                    导入
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {scanResult && (
+            <p className="text-xs opacity-70">
+              平台 {scanResult.platform} · 客户端 {scanResult.clientInstalled ? "已安装" : "未安装"}
+            </p>
+          )}
+          {(scanResult?.items || []).some((i) => i.valid) && (
+            <Button
+              variant="secondary"
+              disabled={busy === "import"}
+              onClick={() => importCredential({ all: true })}
+            >
+              导入全部可用凭证
+            </Button>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
