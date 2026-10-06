@@ -93,6 +93,8 @@ const LOCAL_ONLY_PATHS = [
   "/api/qoder/credentials/",
   // [workbuddy 本机凭证 v0.8.2] 扫描会读取本机凭证文件并拉起 WorkBuddy 客户端取 build key 解密，限制为仅本机可访问
   "/api/codebuddy/credentials/",
+  // [ZCode-register 导入 v0.8.3] 导入会读取本机 成功.txt 并解密 ZCode 凭证，限制为仅本机可访问
+  "/api/zcode/credentials/",
 ];
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);

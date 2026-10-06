@@ -28,6 +28,8 @@ const navItems = [
   { href: "/dashboard/codebuddy-rewards", label: "CodeBuddy Rewards", icon: "emoji_events" },
   // [qoder 权益 v0.6.0] Qoder 签到与福利中心（每日签到领 Credits / Pro 福利包 / 兑换码 / 本机凭证扫描）
   { href: "/dashboard/qoder-rewards", label: "Qoder Rewards", icon: "redeem" },
+  // [ZCode-register 导入 v0.8.3] 导入 ZCode-register 产物（成功.txt）到 glm/glm-cn 账号池
+  { href: "/dashboard/zcode-register", label: "ZCode Register", icon: "app_registration" },
   { href: "/dashboard/token-saver", label: "Token Saver", icon: "savings" },
   // { href: "/dashboard/pxpipe", label: "PXPIPE", icon: "image" },
   { href: "/dashboard/cli-tools", label: "CLI Tools", icon: "terminal" },

@@ -2,6 +2,7 @@
 // 静默成 undefined —— 于是功能在运行时才炸。这里显式断言关键导出存在。
 // （v0.8.1：build 曾报 growthStreakFull / resolveClaimConfig 导入错误，本测试防回归。）
 import { describe, it, expect } from "vitest";
+import crypto from "node:crypto";
 
 describe("zcode claim 模块导出面", () => {
   it("config.js exports resolveClaimConfig", async () => {
@@ -112,5 +113,71 @@ describe("codebuddy 本机凭证扫描（v0.8.2）", () => {
     const cap = localCredentialScanCapability();
     expect(typeof cap.platform).toBe("string");
     expect(Array.isArray(cap.authDirs)).toBe(true);
+  });
+});
+
+describe("ZCode-register 产物解析与解密（v0.8.3）", () => {
+  // 与官方 credentialCipher 同款：AES-256-GCM，key=sha256(secret)，固定 IV 便于断言
+  const SECRET = "unit-test-secret";
+  const enc = (plain) => {
+    const key = crypto.createHash("sha256").update(SECRET).digest();
+    const iv = Buffer.alloc(12, 7);
+    const c = crypto.createCipheriv("aes-256-gcm", key, iv);
+    const ct = Buffer.concat([c.update(plain, "utf8"), c.final()]);
+    return `enc:v1:${iv.toString("base64url")}.${c.getAuthTag().toString("base64url")}.${ct.toString("base64url")}`;
+  };
+  const env = { ZCODE_CREDENTIAL_SECRET: SECRET };
+
+  it("parseRegisterSuccessText 解析四段式行", async () => {
+    const { parseRegisterSuccessText } = await import("../../open-sse/zcode/registerArtifacts.js");
+    const creds = { "zcodejwttoken": enc("jwt-abc") };
+    const line = `a@b.com----pw123----${JSON.stringify(creds)}----{"k":1}`;
+    const items = parseRegisterSuccessText(line);
+    expect(items).toHaveLength(1);
+    expect(items[0].email).toBe("a@b.com");
+    expect(items[0].password).toBe("pw123");
+    expect(items[0].credentials.zcodejwttoken).toBe(creds.zcodejwttoken);
+    expect(items[0].error).toBe("");
+  });
+
+  it("格式不符的行给出 error 且不抛", async () => {
+    const { parseRegisterSuccessText } = await import("../../open-sse/zcode/registerArtifacts.js");
+    const items = parseRegisterSuccessText("not-a-valid-line");
+    expect(items).toHaveLength(1);
+    expect(items[0].error).toMatch(/格式不符/);
+  });
+
+  it("extractZcodeAccount 解密并提取 planKey/jwt/用户信息（zai → glm）", async () => {
+    const { extractZcodeAccount } = await import("../../open-sse/zcode/registerArtifacts.js");
+    const credentials = {
+      "oauth:zai:access_token": enc("oauth-access"),
+      "zcodejwttoken": enc("jwt-token-xyz"),
+      "oauth:zai:user_info": enc(JSON.stringify({ user_id: "u-1", email: "u@x.com", name: "None" })),
+      "oauth:active_provider": enc("zai"),
+      "account-provider:coding-plan:account:zai-individual-coding-plan:account:u-1:api-key": enc("akid.secret"),
+      "account-provider:coding-plan:account:zai-team-coding-plan:account:u-1:api-key": enc("team.secret"),
+    };
+    const acct = extractZcodeAccount(credentials, env);
+    expect(acct.planKey).toBe("akid.secret"); // 个人套餐优先
+    expect(acct.jwt).toBe("jwt-token-xyz");
+    expect(acct.email).toBe("u@x.com");
+    expect(acct.userId).toBe("u-1");
+    expect(acct.name).toBe(""); // "None" 视为空
+    expect(acct.provider).toBe("glm");
+    expect(acct.realm).toBe("intl");
+  });
+
+  it("extractZcodeAccount 识别 bigmodel → glm-cn，且兼容明文值", async () => {
+    const { extractZcodeAccount } = await import("../../open-sse/zcode/registerArtifacts.js");
+    const credentials = {
+      "zcodejwttoken": "plain-jwt",
+      "oauth:active_provider": "bigmodel",
+      "account-provider:coding-plan:account:bigmodel-coding-plan:account:u-2:api-key": "plain.plan",
+    };
+    const acct = extractZcodeAccount(credentials, env);
+    expect(acct.jwt).toBe("plain-jwt");
+    expect(acct.planKey).toBe("plain.plan");
+    expect(acct.provider).toBe("glm-cn");
+    expect(acct.realm).toBe("cn");
   });
 });
