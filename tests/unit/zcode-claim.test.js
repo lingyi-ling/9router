@@ -4,7 +4,7 @@ import { classifyClaimCode } from "../../open-sse/claim/types.js";
 import { createClaimClient, ClaimPreviewError } from "../../open-sse/claim/client.js";
 import { ClaimScheduler } from "../../open-sse/claim/scheduler.js";
 import { parseCertifyId, isCaptchaDuplicateError, isCaptchaIpBlockError } from "../../open-sse/captcha/token.js";
-import { getCaptchaToken, CaptchaSolverUnavailableError } from "../../open-sse/captcha/solver.js";
+import { getCaptchaToken } from "../../open-sse/captcha/solver.js";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -175,9 +175,10 @@ describe("captcha solver dispatch", () => {
     delete process.env.ZCODE_CAPTCHA_SOLVER_URL;
   });
 
-  it("throws an actionable error when no solver is configured", async () => {
-    delete process.env.ZCODE_CAPTCHA_SOLVER_URL;
-    await expect(getCaptchaToken()).rejects.toBeInstanceOf(CaptchaSolverUnavailableError);
+  it("ships the in-process happy-dom solver (verbatim captcha-happy port)", async () => {
+    const mod = await import("../../open-sse/captcha/happyDomSolver.js");
+    expect(typeof mod.solveTraceless).toBe("function");
+    expect(typeof mod.__captchaMemStats).toBe("function");
   });
 
   it("uses the external solver URL when configured", async () => {
@@ -190,5 +191,11 @@ describe("captcha solver dispatch", () => {
     const token = await getCaptchaToken();
     expect(token.verifyParam).toBe("vp-xyz");
     expect(captured.url).toBe("http://127.0.0.1:9999/solve");
+  });
+
+  it("propagates a malformed external solver response", async () => {
+    process.env.ZCODE_CAPTCHA_SOLVER_URL = "http://127.0.0.1:9999";
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ nope: true })));
+    await expect(getCaptchaToken()).rejects.toThrow(/no verifyParam/);
   });
 });

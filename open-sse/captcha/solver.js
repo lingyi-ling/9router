@@ -1,21 +1,19 @@
-// Aliyun captcha solver dispatch — ported (abstraction only) from zcode-api
-// src/proxy/captcha-solver.ts + captcha.ts.
+// Aliyun captcha solver dispatch — ported from zcode-api src/proxy/captcha-solver.ts
+// (+ src/proxy/captcha.ts token entry).
 //
-// The reference ships a 100 KB in-process happy-dom solver that drives the
-// official Aliyun "traceless verification" JS (see captcha-happy.ts). That blob
-// depends on happy-dom internals, sync-XHR worker + SharedArrayBuffer plumbing,
-// undici ProxyAgent, and the Bun compiled-binary environment — it is NOT ported
-// here.
+// The in-process happy-dom solver that drives the official Aliyun "traceless
+// verification" JS ships as `open-sse/captcha/happyDomSolver.js` — a verbatim
+// port of zcode-api src/proxy/captcha-happy.ts with TypeScript types stripped
+// via the TypeScript compiler API (no logic changes). It needs the
+// `happy-dom` + `undici` dependencies.
 //
-// 9router exposes two pluggable backends instead:
-//   1. `ZCODE_CAPTCHA_SOLVER_URL` — an external solver (e.g. the reference
-//      zcode-api run as a local captcha oracle) that accepts
+// Backends, in priority order:
+//   1. `ZCODE_CAPTCHA_SOLVER_URL` — an external solver accepting
 //      `POST {scene, region, prefix}` → `{ verifyParam, region? }`.
-//   2. In-process happy-dom solver — enabled only when `happy-dom` is installed
-//      AND `open-sse/captcha/happyDomSolver.js` exists (not shipped by default).
+//   2. In-process happy-dom solver (default when happy-dom is installed).
 //
-// When neither is available, `getCaptchaToken` throws a clear, actionable error
-// so the claim scheduler backs off instead of silently failing.
+// `getCaptchaToken` returns the verify-param the claim request needs; the claim
+// scheduler backs off on failure.
 
 const DEFAULT_SCENE = "11xygtvd";
 const DEFAULT_REGION = "sgp";
@@ -45,8 +43,8 @@ export async function getCaptchaToken(opts = {}) {
   if (inProcess) return inProcess({ scene, region, prefix });
 
   throw new CaptchaSolverUnavailableError(
-    "no Aliyun captcha solver available. Set ZCODE_CAPTCHA_SOLVER_URL to an external solver, " +
-    "or ship open-sse/captcha/happyDomSolver.js with happy-dom installed.",
+    "no Aliyun captcha solver available. Install happy-dom (in-process solver), " +
+    "or set ZCODE_CAPTCHA_SOLVER_URL to an external solver.",
   );
 }
 
@@ -66,11 +64,16 @@ async function solveViaExternal(baseUrl, { scene, region, prefix }) {
   return { verifyParam: data.verifyParam, region: data.region || region };
 }
 
+/** Load the in-process happy-dom solver; null when the dependency is absent. */
 async function loadInProcessSolver() {
-  // Optional local module; absent by default (the happy-dom blob is not shipped).
   try {
     const mod = await import("./happyDomSolver.js");
-    return mod?.solveCaptcha || mod?.default || null;
+    const solve = mod?.solveTraceless;
+    if (typeof solve !== "function") return null;
+    return async ({ scene, region, prefix }) => {
+      const verifyParam = await solve({ scene, region, prefix });
+      return { verifyParam, region };
+    };
   } catch {
     return null;
   }
