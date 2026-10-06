@@ -134,8 +134,9 @@ async function runHeavyStartup() {
   }
 
   // v0.8.0 CodeBuddy 激励自动化：签到 / 活跃 / 猫猫旅行 / Token 保活 / 成长任务队列
-  // (opt-in via CODEBUDDY_REWARDS_AUTOSTART=1).
-  if (process.env.CODEBUDDY_REWARDS_AUTOSTART === "1") {
+  // 默认开启（CODEBUDDY_REWARDS_AUTOSTART=0 关闭）——旧版用 =1 才开启，重启进程时
+  // 一旦环境变量没带上调度器就静默消失（v0.8.3 改为 opt-out）。
+  if (process.env.CODEBUDDY_REWARDS_AUTOSTART !== "0") {
     import("@/lib/codebuddy/rewardsService.js")
       .then(({ startCodeBuddyRewardsScheduler }) => startCodeBuddyRewardsScheduler())
       .catch((e) => console.log("[CB_REWARDS] scheduler start failed:", e.message));
