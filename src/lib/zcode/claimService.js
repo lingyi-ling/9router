@@ -1,7 +1,8 @@
 // 9router-side glue for the manual-claim subsystem: credential resolution +
 // a process-wide auto-claim scheduler singleton. The heavy lifting lives in
 // open-sse/claim/*; this module bridges it to the app's connection store.
-import { resolveClaimConfig, createClaimGateway, createClaimScheduler } from "open-sse/claim/service.js";
+import { createClaimGateway, createClaimScheduler } from "open-sse/claim/service.js";
+import { resolveClaimConfig } from "open-sse/claim/config.js";
 import { ClaimPreviewError } from "open-sse/claim/client.js";
 import { getCaptchaToken, CaptchaSolverUnavailableError } from "open-sse/captcha/solver.js";
 import { resolveZcodeCredential } from "./credentials.js";

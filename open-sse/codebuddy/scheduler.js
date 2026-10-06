@@ -7,8 +7,8 @@
 //   - 全程 fail-open：单账号失败只记日志，不中断整批。
 // v0.8.0
 import { isAlreadyCheckin, isBuddyTaskIncomplete } from "./upstream/client.js";
-import { growthStreak, travelStatus, travelDepart, travelClaim, buddyInfo, buddyFirst, buddyAgreement } from "./upstream/travel.js";
-import { growthStreakFull, runStreakLoop } from "./upstream/streak.js";
+import { growthStreak, growthStreakFull, travelStatus, travelDepart, travelClaim, buddyInfo, buddyFirst, buddyAgreement } from "./upstream/travel.js";
+import { runStreakLoop } from "./upstream/streak.js";
 import { TRAVEL_STATE } from "./config.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
