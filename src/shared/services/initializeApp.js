@@ -119,6 +119,12 @@ async function runHeavyStartup() {
     .then(({ startBackgroundTokenRefresh }) => startBackgroundTokenRefresh())
     .catch((e) => console.log("[BackgroundTokenRefresh] scheduler start failed:", e.message));
 
+  // [qoder 权益 v0.6.0] Qoder 每日签到调度器（09:00 / 21:00 自动签到领 Credits）。
+  // Token 保活已由上面的 backgroundTokenRefresh 承担，这里只做签到排程。
+  import("@/shared/services/qoderScheduler.js")
+    .then(({ startQoderScheduler }) => startQoderScheduler())
+    .catch((e) => console.log("[QoderScheduler] start failed:", e.message));
+
   // v0.7.0 ZCode 套餐秒抢：auto-claim scheduler (opt-in via ZCODE_CLAIM_AUTOSTART=1).
   // Backs off until a glm/glm-cn OAuth credential with a JWT exists.
   if (process.env.ZCODE_CLAIM_AUTOSTART === "1") {
