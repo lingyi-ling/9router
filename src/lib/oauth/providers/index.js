@@ -29,6 +29,7 @@ import trae from "./trae.js";
 import windsurf from "./windsurf.js";
 import zed from "./zed.js";
 import glm from "./glm.js";
+import glmCn from "./glm-cn.js";
 
 // Provider configurations
 const PROVIDERS = {
@@ -57,6 +58,7 @@ const PROVIDERS = {
   windsurf,
   zed,
   glm,
+  "glm-cn": glmCn,
 };
 
 export { PROVIDERS };

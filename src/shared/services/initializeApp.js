@@ -118,6 +118,14 @@ async function runHeavyStartup() {
   import("@/sse/services/backgroundTokenRefresh.js")
     .then(({ startBackgroundTokenRefresh }) => startBackgroundTokenRefresh())
     .catch((e) => console.log("[BackgroundTokenRefresh] scheduler start failed:", e.message));
+
+  // v0.7.0 ZCode 套餐秒抢：auto-claim scheduler (opt-in via ZCODE_CLAIM_AUTOSTART=1).
+  // Backs off until a glm/glm-cn OAuth credential with a JWT exists.
+  if (process.env.ZCODE_CLAIM_AUTOSTART === "1") {
+    import("@/lib/zcode/claimService.js")
+      .then(({ startClaimScheduler }) => startClaimScheduler())
+      .catch((e) => console.log("[Claim] scheduler start failed:", e.message));
+  }
 }
 
 function hasQuotaAutoPingEnabled(settings) {

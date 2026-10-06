@@ -1,174 +1,197 @@
 import crypto from "crypto";
 import { GLM_OAUTH_CONFIG } from "../constants/oauth.js";
 
-// Zai GLM Coding OAuth — CLI polling flow (mirrors the official
+// Zai / Bigmodel GLM Coding OAuth — CLI polling flow (mirrors the official
 // ZCode CLI, apps/zcode-cli packages/adapters/src/auth/cli-oauth.ts +
 // coding-plan-api-key.ts). No PKCE and no local callback server:
 //
-//   1) POST {cliInitUrl}   Authorization: Bearer <pollToken>  {"provider":"zai"}
+//   1) POST {cliInitUrl}   Authorization: Bearer <pollToken>  {"provider":"<providerId>"}
 //        → { code: 0, data: { authorize_url, flow_id, poll_interval_sec, expires_at } }
-//   2) Browser opens authorize_url; user signs in with the Z.ai account
+//   2) Browser opens authorize_url; user signs in with the Z.ai / Bigmodel account
 //   3) GET {cliPollUrl}/<flow_id>   Authorization: Bearer <pollToken>
 //        → { data: { status: "pending" } } until
-//          { data: { status: "ready", token, user, accessToken, refreshToken? } }
-//   4) accessToken (Z.AI OAuth token) → POST {businessLoginUrl} {"token": ...}
-//        → { data: { access_token } } (platform business JWT)
-//   5) Business JWT → coding-plan API key via getCustomerInfo → api_keys
-//      list/create("zcode-api-key") → copy → "apiKey.secretKey"
+//          { data: { status: "ready", token, user, <providerId>: { access_token, refresh_token? } } }
+//   4) resolveCodingPlanApiKey() derives the long-lived coding-plan API key
+//      (Z.ai and Bigmodel derivation differ — see below)
 //
-// The coding-plan API key is the long-lived model credential; the ZAI OAuth
-// provider has no refresh_token grant, so expiry means re-login (same as the
+// The coding-plan API key is the long-lived model credential; neither OAuth
+// provider has a refresh_token grant, so expiry means re-login (same as the
 // official CLI). zcode JWT + business token ride along in providerSpecificData
 // for quota/usage and debugging.
-const glm = {
-  config: GLM_OAUTH_CONFIG,
-  flowType: "device_code",
-  requestDeviceCode: async (config) => {
-    const pollToken = crypto.randomBytes(32).toString("hex");
-    const response = await fetch(config.cliInitUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${pollToken}`,
-      },
-      body: JSON.stringify({ provider: config.providerId || "zai" }),
-    });
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`ZCode OAuth init failed: ${error}`);
-    }
-    const payload = await response.json();
-    if (!isSuccessCode(payload.code) || !payload.data) {
-      throw new Error(payload.msg || "ZCode OAuth init returned no data");
-    }
-    const data = payload.data;
-    if (!data.flow_id || !data.authorize_url) {
-      throw new Error("ZCode OAuth init response missing flow_id/authorize_url");
-    }
-    return {
-      device_code: data.flow_id,
-      verification_uri: data.authorize_url,
-      // expires_at is upstream-absolute; surface a relative deadline for the UI
-      expires_in: relativeSeconds(data.expires_at) ?? 300,
-      interval: data.poll_interval_sec || 3,
-      _zcodePollToken: pollToken,
-    };
-  },
-  pollToken: async (config, deviceCode, _codeVerifier, extraData) => {
-    const pollToken = extraData?._zcodePollToken;
-    if (!pollToken) {
+//
+// v0.7.0 新增 bigmodel 变体：同一个 CLI 轮询协议，但 providerId="bigmodel"，
+// 凭证推导走 bigmodel.cn（不经 z/login 换票、密钥后缀非强制）。
+// 见 createGlmProvider / resolveCodingPlanApiKey。
+const glm = createGlmProvider(GLM_OAUTH_CONFIG);
+
+/**
+ * Build a GLM-family OAuth provider handler for a given registry config.
+ * Exported so `glm-cn.js` (Bigmodel) can reuse the identical poll protocol.
+ * @param {object} config - registry `oauth` block (PROVIDER_OAUTH[<id>])
+ */
+export function createGlmProvider(config) {
+  return {
+    config,
+    flowType: "device_code",
+    requestDeviceCode: async (cfg) => {
+      const pollToken = crypto.randomBytes(32).toString("hex");
+      const response = await fetch(cfg.cliInitUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pollToken}`,
+        },
+        body: JSON.stringify({ provider: cfg.providerId || "zai" }),
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`ZCode OAuth init failed: ${error}`);
+      }
+      const payload = await response.json();
+      if (!isSuccessCode(payload.code) || !payload.data) {
+        throw new Error(payload.msg || "ZCode OAuth init returned no data");
+      }
+      const data = payload.data;
+      if (!data.flow_id || !data.authorize_url) {
+        throw new Error("ZCode OAuth init response missing flow_id/authorize_url");
+      }
+      return {
+        device_code: data.flow_id,
+        verification_uri: data.authorize_url,
+        // expires_at is upstream-absolute; surface a relative deadline for the UI
+        expires_in: relativeSeconds(data.expires_at) ?? 300,
+        interval: data.poll_interval_sec || 3,
+        _zcodePollToken: pollToken,
+      };
+    },
+    pollToken: async (cfg, deviceCode, _codeVerifier, extraData) => {
+      const pollToken = extraData?._zcodePollToken;
+      if (!pollToken) {
+        return {
+          ok: true,
+          data: {
+            error: "access_denied",
+            error_description: "Missing ZCode poll token — restart the login flow",
+          },
+        };
+      }
+
+      const response = await fetch(`${cfg.cliPollUrl}/${encodeURIComponent(deviceCode)}`, {
+        headers: { Authorization: `Bearer ${pollToken}` },
+      });
+      if (!response.ok) {
+        return {
+          ok: true,
+          data: {
+            error: "access_denied",
+            error_description: `ZCode poll failed (HTTP ${response.status})`,
+          },
+        };
+      }
+
+      const payload = await response.json();
+      if (!isSuccessCode(payload.code)) {
+        return {
+          ok: true,
+          data: { error: "access_denied", error_description: payload.msg || "ZCode poll failed" },
+        };
+      }
+
+      const data = payload.data || {};
+      if (data.status === "pending") {
+        return { ok: true, data: { error: "authorization_pending" } };
+      }
+      if (data.status === "failed") {
+        return {
+          ok: true,
+          data: {
+            error: "access_denied",
+            error_description: "ZCode authorization failed or was cancelled",
+          },
+        };
+      }
+      if (data.status !== "ready") {
+        return {
+          ok: true,
+          data: { error: "authorization_pending", error_description: `Unknown status: ${data.status}` },
+        };
+      }
+
+      // ready payload nests the provider OAuth tokens under data[providerId] (see
+      // apps/zcode-cli cli-oauth.ts parseReadyData): { status:"ready", token,
+      // user, zai|bigmodel: { access_token, refresh_token? } }. Fall back to
+      // top-level fields for resilience against payload drift.
+      const providerKey = cfg.providerId || "zai";
+      const providerData = data[providerKey] || data[data.providerId] || {};
+      const providerAccessToken =
+        providerData.access_token ||
+        providerData.accessToken ||
+        data.accessToken ||
+        data.access_token;
+      if (!providerAccessToken) {
+        return {
+          ok: true,
+          data: {
+            error: "access_denied",
+            error_description: "ZCode poll response missing access token",
+          },
+        };
+      }
+
+      // providerAccessToken is the Z.AI / Bigmodel OAuth token → derive plan key
+      const { planApiKey, businessToken } = await resolveCodingPlanApiKey(cfg, providerAccessToken);
+
       return {
         ok: true,
         data: {
-          error: "access_denied",
-          error_description: "Missing ZCode poll token — restart the login flow",
+          access_token: planApiKey,
+          _zcodeJwtToken: data.token || "",
+          _zaiBusinessToken: businessToken,
+          _zaiRefreshToken:
+            providerData.refresh_token || providerData.refreshToken || data.refresh_token || data.refreshToken || "",
+          _zcodeUser: data.user || {},
         },
       };
-    }
-
-    const response = await fetch(`${config.cliPollUrl}/${encodeURIComponent(deviceCode)}`, {
-      headers: { Authorization: `Bearer ${pollToken}` },
-    });
-    if (!response.ok) {
+    },
+    mapTokens: (tokens) => {
+      const user = tokens._zcodeUser || {};
+      const displayName = user.name || user.email || null;
       return {
-        ok: true,
-        data: {
-          error: "access_denied",
-          error_description: `ZCode poll failed (HTTP ${response.status})`,
+        accessToken: tokens.access_token,
+        refreshToken: null,
+        email: user.email || null,
+        ...(displayName ? { displayName } : {}),
+        providerSpecificData: {
+          authMethod: "cli_poll",
+          username: user.name || undefined,
+          userId: user.user_id || undefined,
+          zcodeJwtToken: tokens._zcodeJwtToken || undefined,
+          zaiBusinessToken: tokens._zaiBusinessToken || undefined,
+          ...(tokens._zaiRefreshToken ? { zaiRefreshToken: tokens._zaiRefreshToken } : {}),
         },
       };
-    }
+    },
+  };
+}
 
-    const payload = await response.json();
-    if (!isSuccessCode(payload.code)) {
-      return {
-        ok: true,
-        data: { error: "access_denied", error_description: payload.msg || "ZCode poll failed" },
-      };
-    }
-
-    const data = payload.data || {};
-    if (data.status === "pending") {
-      return { ok: true, data: { error: "authorization_pending" } };
-    }
-    if (data.status === "failed") {
-      return {
-        ok: true,
-        data: {
-          error: "access_denied",
-          error_description: "ZCode authorization failed or was cancelled",
-        },
-      };
-    }
-    if (data.status !== "ready") {
-      return {
-        ok: true,
-        data: { error: "authorization_pending", error_description: `Unknown status: ${data.status}` },
-      };
-    }
-
-    // ready payload nests the ZAI OAuth tokens under data[providerId] (see
-    // apps/zcode-cli cli-oauth.ts parseReadyData): { status:"ready", token,
-    // user, zai: { access_token, refresh_token? } }. Fall back to top-level
-    // fields for resilience against payload drift.
-    const providerData = data[config.providerId] || data[data.providerId] || {};
-    const zaiAccessToken =
-      providerData.access_token ||
-      providerData.accessToken ||
-      data.accessToken ||
-      data.access_token;
-    if (!zaiAccessToken) {
-      return {
-        ok: true,
-        data: {
-          error: "access_denied",
-          error_description: "ZCode poll response missing access token",
-        },
-      };
-    }
-
-    // ready.accessToken is the Z.AI OAuth token — derive the coding-plan API key
-    const { planApiKey, businessToken } = await resolveCodingPlanApiKey(config, zaiAccessToken);
-
-    return {
-      ok: true,
-      data: {
-        access_token: planApiKey,
-        _zcodeJwtToken: data.token || "",
-        _zaiBusinessToken: businessToken,
-        _zaiRefreshToken:
-          providerData.refresh_token || providerData.refreshToken || data.refresh_token || data.refreshToken || "",
-        _zcodeUser: data.user || {},
-      },
-    };
-  },
-  mapTokens: (tokens) => {
-    const user = tokens._zcodeUser || {};
-    const displayName = user.name || user.email || null;
-    return {
-      accessToken: tokens.access_token,
-      refreshToken: null,
-      email: user.email || null,
-      ...(displayName ? { displayName } : {}),
-      providerSpecificData: {
-        authMethod: "cli_poll",
-        username: user.name || undefined,
-        userId: user.user_id || undefined,
-        zcodeJwtToken: tokens._zcodeJwtToken || undefined,
-        zaiBusinessToken: tokens._zaiBusinessToken || undefined,
-        ...(tokens._zaiRefreshToken ? { zaiRefreshToken: tokens._zaiRefreshToken } : {}),
-      },
-    };
-  },
-};
-
-// Business JWT → coding-plan API key ("apiKey.secretKey"). Mirrors ZCode CLI
-// coding-plan-api-key.ts: getCustomerInfo → default org/project → api_keys
-// list/create("zcode-api-key") → copy → secretKey.
-async function resolveCodingPlanApiKey(config, zaiAccessToken) {
-  const businessToken = await exchangeBusinessToken(config, zaiAccessToken);
+// OAuth provider token → coding-plan API key ("apiKey.secretKey"). Mirrors
+// ZCode CLI coding-plan-api-key.ts: getCustomerInfo → default org/project →
+// api_keys list/create(<planApiKeyName>) → copy → secretKey.
+//
+// v0.7.0 bigmodel 差异:
+//   - apiBaseUrl 为 https://bigmodel.cn；Z.ai 为 https://api.z.ai
+//   - Z.ai 先用 z/login 把 OAuth token 换成 business JWT（businessLoginUrl），
+//     请求头带 "Bearer "；bigmodel 直接用 OAuth token 作业务凭证（原样放入
+//     Authorization，不加 Bearer）
+//   - Z.ai 必须取到 secretKey 后缀；bigmodel 取不到时退化为纯 apiKey
+//     （requireSecretKey:false）
+async function resolveCodingPlanApiKey(config, providerAccessToken) {
+  const useBusinessLogin = Boolean(config.businessLoginUrl);
+  const businessToken = useBusinessLogin
+    ? await exchangeBusinessToken(config, providerAccessToken)
+    : providerAccessToken;
   const authHeaders = {
-    Authorization: `Bearer ${businessToken}`,
+    Authorization: useBusinessLogin ? `Bearer ${businessToken}` : businessToken,
     "Content-Type": "application/json",
   };
 
@@ -206,27 +229,35 @@ async function resolveCodingPlanApiKey(config, zaiAccessToken) {
     throw new Error("Z.ai api_keys response is missing apiKey");
   }
 
-  const secret = await fetchBusinessJson(
-    `${listUrl}/copy/${encodeURIComponent(apiKey)}`,
-    { headers: authHeaders },
-    "api key copy"
-  );
+  // copy → secretKey；bigmodel 视为尽力而为（纯 apiKey 也能用）
+  let secret;
+  try {
+    secret = await fetchBusinessJson(
+      `${listUrl}/copy/${encodeURIComponent(apiKey)}`,
+      { headers: authHeaders },
+      "api key copy"
+    );
+  } catch (error) {
+    if (config.requireSecretKey === false) return { planApiKey: apiKey, businessToken };
+    throw error;
+  }
   const secretKey = secret?.secretKey?.trim();
   if (!secretKey) {
+    if (config.requireSecretKey === false) return { planApiKey: apiKey, businessToken };
     throw new Error("Z.ai api key copy response is missing secretKey");
   }
 
   return { planApiKey: `${apiKey}.${secretKey}`, businessToken };
 }
 
-// POST {businessLoginUrl} {"token": <zai oauth token>} → { data: { access_token } }
-async function exchangeBusinessToken(config, zaiAccessToken) {
+// POST {businessLoginUrl} {"token": <provider oauth token>} → { data: { access_token } }
+async function exchangeBusinessToken(config, providerAccessToken) {
   const payload = await fetchBusinessJson(
     config.businessLoginUrl,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: zaiAccessToken }),
+      body: JSON.stringify({ token: providerAccessToken }),
     },
     "Z.ai business login"
   );

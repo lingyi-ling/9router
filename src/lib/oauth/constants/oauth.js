@@ -212,6 +212,12 @@ export const WINDSURF_CONFIG = {
 // refresh grant).
 export const GLM_OAUTH_CONFIG = { ...PROVIDER_OAUTH["glm"] };
 
+// GLM Coding (Bigmodel / 智谱) OAuth — same ZCode CLI polling protocol as GLM,
+// but the login is Bigmodel-branded (`providerId:"bigmodel"`) and the plan key
+// is derived from bigmodel.cn (no z/login exchange; secretKey suffix optional).
+// v0.7.0
+export const GLM_CN_OAUTH_CONFIG = { ...PROVIDER_OAUTH["glm-cn"] };
+
 // Zed hosted LLM aggregator — RSA keypair native-app auth (NOT OAuth).
 // Client generates ephemeral RSA-2048 keypair; user signs in at zed.dev/native_app_signin;
 // Zed redirects to local callback with access_token RSA-encrypted against our public key.

@@ -59,6 +59,21 @@ const nextConfig = {
   },
   async rewrites() {
     return [
+      // Official ZCode plugin-MCP relay (v0.7.0): expose the upstream-parity
+      // `/mcp/{server}` surface and namespace it under /api/mcp/zcode.
+      {
+        source: "/mcp",
+        destination: "/api/mcp/zcode"
+      },
+      {
+        source: "/mcp/:path*",
+        destination: "/api/mcp/zcode/:path*"
+      },
+      // Off-peak (闲时通道) async gateway (v0.7.0).
+      {
+        source: "/async/v1/:path*",
+        destination: "/api/async/v1/:path*"
+      },
       {
         source: "/v1/v1/:path*",
         destination: "/api/v1/:path*"
