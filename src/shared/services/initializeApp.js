@@ -118,6 +118,14 @@ async function runHeavyStartup() {
   import("@/sse/services/backgroundTokenRefresh.js")
     .then(({ startBackgroundTokenRefresh }) => startBackgroundTokenRefresh())
     .catch((e) => console.log("[BackgroundTokenRefresh] scheduler start failed:", e.message));
+
+  // v0.8.0 CodeBuddy 激励自动化：签到 / 活跃 / 猫猫旅行 / Token 保活 / 成长任务队列
+  // (opt-in via CODEBUDDY_REWARDS_AUTOSTART=1).
+  if (process.env.CODEBUDDY_REWARDS_AUTOSTART === "1") {
+    import("@/lib/codebuddy/rewardsService.js")
+      .then(({ startCodeBuddyRewardsScheduler }) => startCodeBuddyRewardsScheduler())
+      .catch((e) => console.log("[CB_REWARDS] scheduler start failed:", e.message));
+  }
 }
 
 function hasQuotaAutoPingEnabled(settings) {
