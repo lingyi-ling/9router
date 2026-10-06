@@ -8,6 +8,7 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
 import { extractClaudeSessionIdFromUserId } from "../utils/claudeCloaking.js";
+import { applyGlmBodyAlignment } from "../utils/glmBodyAlign.js";
 
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
@@ -71,7 +72,7 @@ export class DefaultExecutor extends BaseExecutor {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
   }
 
-  transformRequest(model, body) {
+  transformRequest(model, body, stream, credentials) {
     const transformed = this.applyJsonSchemaFallback(body);
 
     if (transformed && typeof transformed === "object") {
@@ -82,7 +83,15 @@ export class DefaultExecutor extends BaseExecutor {
       stripUnsupportedParams(this.provider, model, transformed);
     }
 
-    return injectReasoningContent({ provider: this.provider, model, body: transformed });
+    const finalBody = injectReasoningContent({ provider: this.provider, model, body: transformed });
+
+    // v0.7.0 GLM coding-plan: align the outbound body with the official ZCode
+    // client (stream_options / cache_control / metadata.user_id). No-op for
+    // every other provider.
+    const runtimeFormat = credentials?.runtimeTransport?.format || this.config.format;
+    applyGlmBodyAlignment(this.provider, finalBody, runtimeFormat, credentials);
+
+    return finalBody;
   }
 
   // Fallback json_schema → json_object for openai-compatible providers without native Structured Output.
