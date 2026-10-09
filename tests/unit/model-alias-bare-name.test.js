@@ -143,13 +143,15 @@ describe("Qoder 提供商作用域的友好名映射（v0.8.9）", () => {
       ["qwen3.7-max", "qmodel_latest"],
       ["qwen3.7-plus", "qmodel"],
       ["qwen3.8-flash", "qfmodel"],
+      ["qwen3.7-flash", "q37fmodel"],
       ["kimi-k3", "kmodel_latest"],
-      ["kimi-k2.7-code", "kmodel"],
+      ["kimi-k2.8-preview", "kmodel"],
       ["glm-5.3", "gmodel"],
       ["glm-5.3-flash", "gfmodel"],
+      ["glm-5.2", "gm51model"],
       ["deepseek-v4-pro", "dmodel"],
-      ["deepseek-v4-flash", "dfmodel"],
-      ["minimax-m3", "mmodel"],
+      ["deepseek-v4.1-flash", "dfmodel"],
+      ["minimax-m2.7", "mmodel"],
     ];
     for (const [friendly, code] of cases) {
       expect(resolveProviderModelAlias("qoder-cn", friendly)).toBe(code);
@@ -169,6 +171,8 @@ describe("Qoder 提供商作用域的友好名映射（v0.8.9）", () => {
   it("代号 → 友好名（列表展示隐去代号）", () => {
     expect(providerModelDisplayName("qoder-cn", "qfmodel")).toBe("qwen3.8-flash");
     expect(providerModelDisplayName("qoder-cn", "gmodel")).toBe("glm-5.3");
+    expect(providerModelDisplayName("qoder-cn", "kmodel")).toBe("kimi-k2.8-preview");
+    expect(providerModelDisplayName("qoder-cn", "gm51model")).toBe("glm-5.2");
     expect(providerModelDisplayName("qoder-cn", "ultimate")).toBe("ultimate"); // 无映射原样
     expect(providerModelDisplayName("codebuddy-cn", "glm-5.3")).toBe("glm-5.3");
   });

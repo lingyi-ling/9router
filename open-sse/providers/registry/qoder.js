@@ -36,27 +36,30 @@ export default {
     { id: "qmodel", name: "Qwen3.7-Plus" },
     { id: "qfmodel", name: "Qwen3.8-Flash" },
     { id: "kmodel_latest", name: "Kimi-K3" },
-    { id: "kmodel", name: "Kimi-K2.7-Code" },
+    { id: "kmodel", name: "Kimi-K2.8-Preview" },
     { id: "gmodel", name: "GLM-5.3" },
     { id: "gfmodel", name: "GLM-5.3-Flash" },
     { id: "dmodel", name: "DeepSeek-V4-Pro" },
-    { id: "dfmodel", name: "DeepSeek-V4-Flash" },
-    { id: "mmodel", name: "MiniMax-M3" },
+    { id: "dfmodel", name: "DeepSeek-V4.1-Flash" },
+    { id: "mmodel", name: "MiniMax-M2.7" },
   ],
-  // v0.8.9 — 上游代号 → 友好名。代号是上游契约（执行器按该 key 查 model_config），不能改 id；
-  // 这里只做「展示 + 调用」两层归一化，且仅在本提供商前缀（qd/）下生效，裸名行为不变。
+  // v0.8.9 — 上游代号 → 友好名（与 CN 站保持一致，以上游目录实际显示名为准）。代号是上游契约
+  // （执行器按该 key 查 model_config），不能改 id；这里只做「展示 + 调用」两层归一化，且仅在
+  // 本提供商前缀（qd/）下生效，裸名行为不变。命名与 qoder-cn.js 对齐，便于白名单统一格式。
   modelAliases: {
     qmodel_38max: "qwen3.8-max",
     qmodel_latest: "qwen3.7-max",
     qmodel: "qwen3.7-plus",
     qfmodel: "qwen3.8-flash",
+    q37fmodel: "qwen3.7-flash",
     kmodel_latest: "kimi-k3",
-    kmodel: "kimi-k2.7-code",
+    kmodel: "kimi-k2.8-preview",
     gmodel: "glm-5.3",
     gfmodel: "glm-5.3-flash",
+    gm51model: "glm-5.2",
     dmodel: "deepseek-v4-pro",
-    dfmodel: "deepseek-v4-flash",
-    mmodel: "minimax-m3",
+    dfmodel: "deepseek-v4.1-flash",
+    mmodel: "minimax-m2.7",
   },
   oauth: {
     openApiBaseUrl: "https://openapi.qoder.sh",
