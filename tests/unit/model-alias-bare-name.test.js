@@ -4,7 +4,7 @@
 // 用户没有该提供商连接时直接 404「No active credentials for provider」。
 // 现在由 resolveModelProviderFallback 按「注册表发布该模型 + 有活跃连接」兜底。
 import { describe, it, expect } from "vitest";
-import { getModelInfoCore, parseModel, resolveModelProviderFallback, resolveNamespacedModelFallback } from "../../open-sse/services/model.js";
+import { getModelInfoCore, parseModel, resolveModelProviderFallback, resolveNamespacedModelFallback, resolveProviderModelAlias, providerModelDisplayName } from "../../open-sse/services/model.js";
 
 describe("resolveModelProviderFallback（裸名按连接兜底）", () => {
   const active = (...ids) => new Set(ids);
@@ -133,6 +133,65 @@ describe("getModelInfoCore 既有行为未被改变", () => {
   it("其它 deepseek-* 未被误伤", async () => {
     const info = await getModelInfoCore("deepseek-chat");
     expect(info.provider).toBe("openrouter");
+  });
+});
+
+describe("Qoder 提供商作用域的友好名映射（v0.8.9）", () => {
+  it("友好名 → 上游代号（带前缀调用时归一化）", () => {
+    const cases = [
+      ["qwen3.8-max", "qmodel_38max"],
+      ["qwen3.7-max", "qmodel_latest"],
+      ["qwen3.7-plus", "qmodel"],
+      ["qwen3.8-flash", "qfmodel"],
+      ["kimi-k3", "kmodel_latest"],
+      ["kimi-k2.7-code", "kmodel"],
+      ["glm-5.3", "gmodel"],
+      ["glm-5.3-flash", "gfmodel"],
+      ["deepseek-v4-pro", "dmodel"],
+      ["deepseek-v4-flash", "dfmodel"],
+      ["minimax-m3", "mmodel"],
+    ];
+    for (const [friendly, code] of cases) {
+      expect(resolveProviderModelAlias("qoder-cn", friendly)).toBe(code);
+      expect(resolveProviderModelAlias("qoder", friendly)).toBe(code);
+    }
+  });
+
+  it("代号本身原样返回（旧写法仍可用）", () => {
+    expect(resolveProviderModelAlias("qoder-cn", "qfmodel")).toBe("qfmodel");
+  });
+
+  it("作用域之外不映射（不会把 codebuddy 的 glm-5.3 改掉）", () => {
+    expect(resolveProviderModelAlias("codebuddy-cn", "glm-5.3")).toBe("glm-5.3");
+    expect(resolveProviderModelAlias(null, "glm-5.3")).toBe("glm-5.3");
+  });
+
+  it("代号 → 友好名（列表展示隐去代号）", () => {
+    expect(providerModelDisplayName("qoder-cn", "qfmodel")).toBe("qwen3.8-flash");
+    expect(providerModelDisplayName("qoder-cn", "gmodel")).toBe("glm-5.3");
+    expect(providerModelDisplayName("qoder-cn", "ultimate")).toBe("ultimate"); // 无映射原样
+    expect(providerModelDisplayName("codebuddy-cn", "glm-5.3")).toBe("glm-5.3");
+  });
+
+  it("裸名兜底：优先精确 id，避免友好名抢走 CodeBuddy 的 glm-5.3", () => {
+    // codebuddy-cn 与 qoder-cn 都「可用」时，裸 glm-5.3 归 codebuddy（精确 id）
+    expect(
+      resolveModelProviderFallback({
+        provider: "openai",
+        model: "glm-5.3",
+        activeProviderIds: new Set(["codebuddy-cn", "qoder-cn"]),
+      })
+    ).toBe("codebuddy-cn");
+  });
+
+  it("裸名兜底：无精确命中时退到友好名（仅连了 qoder 时 kimi-k3 归 qoder-cn）", () => {
+    expect(
+      resolveModelProviderFallback({
+        provider: "openai",
+        model: "kimi-k3",
+        activeProviderIds: new Set(["qoder-cn"]),
+      })
+    ).toBe("qoder-cn");
   });
 });
 

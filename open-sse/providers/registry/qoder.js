@@ -43,6 +43,21 @@ export default {
     { id: "dfmodel", name: "DeepSeek-V4-Flash" },
     { id: "mmodel", name: "MiniMax-M3" },
   ],
+  // v0.8.9 — 上游代号 → 友好名。代号是上游契约（执行器按该 key 查 model_config），不能改 id；
+  // 这里只做「展示 + 调用」两层归一化，且仅在本提供商前缀（qd/）下生效，裸名行为不变。
+  modelAliases: {
+    qmodel_38max: "qwen3.8-max",
+    qmodel_latest: "qwen3.7-max",
+    qmodel: "qwen3.7-plus",
+    qfmodel: "qwen3.8-flash",
+    kmodel_latest: "kimi-k3",
+    kmodel: "kimi-k2.7-code",
+    gmodel: "glm-5.3",
+    gfmodel: "glm-5.3-flash",
+    dmodel: "deepseek-v4-pro",
+    dfmodel: "deepseek-v4-flash",
+    mmodel: "minimax-m3",
+  },
   oauth: {
     openApiBaseUrl: "https://openapi.qoder.sh",
     centerBaseUrl: "https://center.qoder.sh",

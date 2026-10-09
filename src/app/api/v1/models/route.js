@@ -12,6 +12,7 @@ import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyA
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
 import { resolveQoderModels, routableQoderModels } from "open-sse/services/qoderModels.js";
+import { providerModelDisplayName } from "open-sse/services/model.js";
 import { resolveCopilotModels } from "open-sse/services/copilotModels.js";
 import { resolveClinepassModels, resolveClineModels } from "open-sse/services/clinepassModels.js";
 import { resolveGrokCliModels } from "open-sse/services/grokCliModels.js";
@@ -563,7 +564,9 @@ export async function buildModelsList(kindFilter, options = {}) {
         if (isDisabled(outputAlias, modelId) || isDisabled(staticAlias, modelId)) continue;
 
         const model = {
-          id: `${outputAlias}/${modelId}`,
+          // v0.8.9 列表隐去上游代号、展示友好名（如 qfmodel → qwen3.8-flash）；
+          // 调用该友好名时 getModelInfo 会按提供商前缀归一化回代号，故可直呼。
+          id: `${outputAlias}/${providerModelDisplayName(providerId, modelId)}`,
           object: "model",
           owned_by: outputAlias,
         };

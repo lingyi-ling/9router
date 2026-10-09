@@ -1,6 +1,6 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes, getProviderConnections } from "@/lib/localDb";
-import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore, resolveModelProviderFallback, resolveNamespacedModelFallback } from "open-sse/services/model.js";
+import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore, resolveModelProviderFallback, resolveNamespacedModelFallback, resolveProviderModelAlias } from "open-sse/services/model.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 
 // v0.8.6 裸名兜底用的「有活跃连接的提供商」集合，短 TTL 缓存：
@@ -89,7 +89,9 @@ export async function getModelInfo(modelStr) {
     if (nsProvider) return { provider: nsProvider, model: modelStr };
     return {
       provider: parsed.provider,
-      model: parsed.model
+      // v0.8.9 提供商作用域的友好名归一化：`qdcn/qwen3.8-flash` 等带前缀写法映射回上游代号，
+      // 使列表/白名单显示友好名后仍可直呼；未命中（含代号本身）原样返回，行为不变。
+      model: resolveProviderModelAlias(parsed.provider, parsed.model)
     };
   }
 
@@ -111,7 +113,10 @@ export async function getModelInfo(modelStr) {
     model: info.model,
     activeProviderIds: await getActiveProviderIdSet(),
   });
-  return fallbackProvider ? { provider: fallbackProvider, model: info.model } : info;
+  // 兜底改选提供商后，模型段同样按该提供商作用域归一化（裸 `kimi-k3` → qoder-cn 的 `kmodel_latest`）。
+  return fallbackProvider
+    ? { provider: fallbackProvider, model: resolveProviderModelAlias(fallbackProvider, info.model) }
+    : info;
 }
 
 /**

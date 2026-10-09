@@ -30,13 +30,58 @@ const BUILTIN_MODEL_ALIASES = {
 
 // modelId → 注册表里发布它的条目（单一数据源，用于裸名兜底解析）
 const MODEL_PROVIDER_INDEX = new Map();
+// v0.8.9 — 友好名 → 发布它的条目（只收 modelAliases 里的友好名，用于裸名兜底；精确 id 优先）
+const MODEL_FRIENDLY_INDEX = new Map();
+const pushIndex = (index, key, entry) => {
+  const list = index.get(key);
+  if (list) list.push(entry);
+  else index.set(key, [entry]);
+};
+// v0.8.9 — 提供商作用域的「上游代号 ⇄ 友好名」映射（注册表 opt-in 字段 modelAliases）。
+// Qoder 的模型 id 是上游契约（执行器按该 key 查 model_config），不能改 id；但代号对用户不可读。
+// 于是列表/白名单展示友好名、调用也接受友好名，且仅在该提供商前缀下生效，裸名行为不变。
+// 这样 providers 之间不会互相串味：qdcn/glm-5.3 命中 Qoder，裸 glm-5.3 仍归 CodeBuddy。
+const PROVIDER_FRIENDLY_TO_ID = new Map(); // providerId → Map(lower(友好名) → 代号)
+const PROVIDER_ID_TO_FRIENDLY = new Map(); // providerId → Map(代号 → lower(友好名))
+
 for (const entry of REGISTRY) {
   for (const m of entry.models || []) {
-    if (!m?.id) continue;
-    const list = MODEL_PROVIDER_INDEX.get(m.id);
-    if (list) list.push(entry);
-    else MODEL_PROVIDER_INDEX.set(m.id, [entry]);
+    if (m?.id) pushIndex(MODEL_PROVIDER_INDEX, m.id, entry);
   }
+  const aliases = entry.modelAliases;
+  if (!aliases) continue;
+  const toId = new Map();
+  const toFriendly = new Map();
+  for (const [id, friendly] of Object.entries(aliases)) {
+    if (!id || !friendly) continue;
+    const key = String(friendly).toLowerCase();
+    toId.set(key, id);
+    toFriendly.set(id, key);
+    pushIndex(MODEL_FRIENDLY_INDEX, key, entry);
+  }
+  if (toId.size) {
+    PROVIDER_FRIENDLY_TO_ID.set(entry.id, toId);
+    PROVIDER_ID_TO_FRIENDLY.set(entry.id, toFriendly);
+  }
+}
+
+/**
+ * v0.8.9 友好名 → 上游代号（仅在该提供商作用域内匹配，未命中原样返回）。
+ * 调用 `qdcn/qwen3.8-flash` 时把 model 段归一化成上游契约用的代号 `qfmodel`。
+ */
+export function resolveProviderModelAlias(provider, model) {
+  if (!provider || !model) return model;
+  const map = PROVIDER_FRIENDLY_TO_ID.get(provider);
+  return map?.get(String(model).toLowerCase()) || model;
+}
+
+/**
+ * v0.8.9 上游代号 → 友好名（用于列表展示，隐去代号；未命中原样返回）。
+ */
+export function providerModelDisplayName(provider, model) {
+  if (!provider || !model) return model;
+  const map = PROVIDER_ID_TO_FRIENDLY.get(provider);
+  return map?.get(model) || model;
 }
 
 // 只把「对话类」提供商作为兜底候选：显式声明了 serviceKinds 且不含 llm 的（tts/stt/image 等）
@@ -61,10 +106,13 @@ function isChatCapableEntry(entry) {
 export function resolveModelProviderFallback({ provider, model, activeProviderIds }) {
   if (!provider || !model || !activeProviderIds?.size) return null;
   if (activeProviderIds.has(provider)) return null; // 推断结果可用 → 不动
-  const candidates = (MODEL_PROVIDER_INDEX.get(model) || [])
-    .filter((e) => isChatCapableEntry(e) && activeProviderIds.has(e.id))
-    .sort((a, b) => (a.priority || 999) - (b.priority || 999));
-  return candidates[0]?.id || null;
+  const pick = (index, key) =>
+    (index.get(key) || [])
+      .filter((e) => isChatCapableEntry(e) && activeProviderIds.has(e.id))
+      .sort((a, b) => (a.priority || 999) - (b.priority || 999))[0]?.id || null;
+  // v0.8.9：先按「精确 id」命中，再退到「友好名」。精确优先可保证友好名不会抢走其它
+  // 提供商发布的同 id 模型（例：裸 `glm-5.3` 仍归 codebuddy，裸 `kimi-k3`（仅 Qoder 有）归 qoder-cn）。
+  return pick(MODEL_PROVIDER_INDEX, model) || pick(MODEL_FRIENDLY_INDEX, String(model).toLowerCase());
 }
 
 /**
