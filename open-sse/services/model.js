@@ -19,6 +19,13 @@ for (const entry of REGISTRY) {
 
 const BUILTIN_MODEL_ALIASES = {
   "grok-build": "gcli/grok-build",
+  // v0.8.8 — Qoder 的 Qwen 系模型在注册表里用的是代号（qmodel / qfmodel …），
+  // 真实 Qwen 名没人登记，裸调会落到没有连接的提供商而失败。这里按显示名做映射，
+  // 让真实 Qwen 名可以直接调用（用户别名优先级更高，可自行覆盖）。
+  "qwen3.8-max": "qoder-cn/qmodel_38max", // Qwen3.8-Max
+  "qwen3.7-max": "qoder-cn/qmodel_latest", // Qwen3.7-Max
+  "qwen3.7-plus": "qoder-cn/qmodel", // Qwen3.7-Plus
+  "qwen3.8-flash": "qoder-cn/qfmodel", // Qwen3.8-Flash
 };
 
 // modelId → 注册表里发布它的条目（单一数据源，用于裸名兜底解析）

@@ -95,6 +95,21 @@ describe("resolveNamespacedModelFallback（带命名空间的 id，如 NVIDIA）
   });
 });
 
+describe("Qoder Qwen 真实名映射（v0.8.8）", () => {
+  it("真实 Qwen 名 → qoder-cn 的代号", async () => {
+    const cases = [
+      ["qwen3.8-max", "qoder-cn", "qmodel_38max"],
+      ["qwen3.7-max", "qoder-cn", "qmodel_latest"],
+      ["qwen3.7-plus", "qoder-cn", "qmodel"],
+      ["qwen3.8-flash", "qoder-cn", "qfmodel"],
+    ];
+    for (const [alias, provider, model] of cases) {
+      const info = await getModelInfoCore(alias);
+      expect([alias, info.provider, info.model]).toEqual([alias, provider, model]);
+    }
+  });
+});
+
 describe("getModelInfoCore 既有行为未被改变", () => {
   it("裸 deepseek-* 仍按前缀规则推断为 openrouter（兜底由应用层做）", async () => {
     const info = await getModelInfoCore("deepseek-v4.1-flash");
