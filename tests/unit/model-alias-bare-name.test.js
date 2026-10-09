@@ -4,7 +4,7 @@
 // 用户没有该提供商连接时直接 404「No active credentials for provider」。
 // 现在由 resolveModelProviderFallback 按「注册表发布该模型 + 有活跃连接」兜底。
 import { describe, it, expect } from "vitest";
-import { getModelInfoCore, parseModel, resolveModelProviderFallback } from "../../open-sse/services/model.js";
+import { getModelInfoCore, parseModel, resolveModelProviderFallback, resolveNamespacedModelFallback } from "../../open-sse/services/model.js";
 
 describe("resolveModelProviderFallback（裸名按连接兜底）", () => {
   const active = (...ids) => new Set(ids);
@@ -58,6 +58,40 @@ describe("resolveModelProviderFallback（裸名按连接兜底）", () => {
     expect(
       resolveModelProviderFallback({ provider: "openrouter", model: "deepseek-v4.1-flash", activeProviderIds: active() })
     ).toBeNull();
+  });
+});
+
+describe("resolveNamespacedModelFallback（带命名空间的 id，如 NVIDIA）", () => {
+  const active = (...ids) => new Set(ids);
+
+  it("首段不是真实提供商时，整串命中已连接提供商的模型 → 用它", () => {
+    expect(
+      resolveNamespacedModelFallback({ modelStr: "z-ai/glm-5.2", activeProviderIds: active("nvidia") })
+    ).toBe("nvidia");
+  });
+
+  it("首段是已注册提供商 → 不动（尊重显式前缀）", () => {
+    expect(
+      resolveNamespacedModelFallback({ modelStr: "glm/glm-5.2", activeProviderIds: active("nvidia") })
+    ).toBeNull();
+  });
+
+  it("首段是有连接的提供商 → 不动", () => {
+    expect(
+      resolveNamespacedModelFallback({ modelStr: "nvidia/z-ai/glm-5.2", activeProviderIds: active("nvidia") })
+    ).toBeNull();
+  });
+
+  it("整串不是任何已连接提供商的模型 → 不动", () => {
+    expect(
+      resolveNamespacedModelFallback({ modelStr: "z-ai/not-a-model", activeProviderIds: active("nvidia") })
+    ).toBeNull();
+  });
+
+  it("没有斜杠 / 边界情况 → 不动", () => {
+    expect(resolveNamespacedModelFallback({ modelStr: "glm-5.2", activeProviderIds: active("nvidia") })).toBeNull();
+    expect(resolveNamespacedModelFallback({ modelStr: "z-ai/", activeProviderIds: active("nvidia") })).toBeNull();
+    expect(resolveNamespacedModelFallback({ modelStr: "/glm-5.2", activeProviderIds: active("nvidia") })).toBeNull();
   });
 });
 

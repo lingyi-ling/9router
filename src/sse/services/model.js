@@ -1,6 +1,6 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes, getProviderConnections } from "@/lib/localDb";
-import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore, resolveModelProviderFallback } from "open-sse/services/model.js";
+import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore, resolveModelProviderFallback, resolveNamespacedModelFallback } from "open-sse/services/model.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 
 // v0.8.6 裸名兜底用的「有活跃连接的提供商」集合，短 TTL 缓存：
@@ -80,6 +80,13 @@ export async function getModelInfo(modelStr) {
         return { provider: matchedEmbedding.id, model: parsed.model };
       }
     }
+    // v0.8.6 命名空间模型兜底：`z-ai/glm-5.2` 这类首段不是真实提供商的 id，整串命中
+    // 「有连接的提供商发布的模型」时改走该提供商（上游模型名保持整串）。
+    const nsProvider = resolveNamespacedModelFallback({
+      modelStr,
+      activeProviderIds: await getActiveProviderIdSet(),
+    });
+    if (nsProvider) return { provider: nsProvider, model: modelStr };
     return {
       provider: parsed.provider,
       model: parsed.model

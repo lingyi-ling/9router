@@ -61,6 +61,31 @@ export function resolveModelProviderFallback({ provider, model, activeProviderId
 }
 
 /**
+ * v0.8.6 带命名空间的模型 id 兜底（如 NVIDIA 的 `z-ai/glm-5.2`、`deepseek-ai/deepseek-v4-pro`）。
+ *
+ * 这类 id 本身就含 `/`，会被 parseModel 拆成「provider=z-ai, model=glm-5.2」，而 `z-ai`
+ * 并不是注册的提供商 → 请求落到不存在的提供商上失败。正确写法是 `nvidia/z-ai/glm-5.2`，
+ * 但用户很容易漏掉前缀。
+ *
+ * 规则（三重保险，避免抢走真正的显式前缀）：
+ *   1. 首段是已注册的提供商 id/别名 → 不动（尊重显式前缀）
+ *   2. 首段是「有活跃连接的提供商」→ 不动（同上）
+ *   3. 整串作为模型 id 命中「确实发布它且有连接的提供商」→ 用它，且上游模型名保持整串
+ */
+export function resolveNamespacedModelFallback({ modelStr, activeProviderIds }) {
+  if (typeof modelStr !== "string" || !activeProviderIds?.size) return null;
+  const slash = modelStr.indexOf("/");
+  if (slash <= 0 || slash === modelStr.length - 1) return null;
+  const head = modelStr.slice(0, slash);
+  if (ALIAS_TO_PROVIDER_ID[head]) return null; // 已知提供商/别名 → 尊重显式前缀
+  if (activeProviderIds.has(head)) return null; // 有连接的提供商前缀 → 尊重
+  const candidates = (MODEL_PROVIDER_INDEX.get(modelStr) || [])
+    .filter((e) => isChatCapableEntry(e) && activeProviderIds.has(e.id))
+    .sort((a, b) => (a.priority || 999) - (b.priority || 999));
+  return candidates[0]?.id || null;
+}
+
+/**
  * Resolve provider alias to provider ID
  */
 export function resolveProviderAlias(aliasOrId) {
