@@ -19,6 +19,14 @@ for (const entry of REGISTRY) {
 
 const BUILTIN_MODEL_ALIASES = {
   "grok-build": "gcli/grok-build",
+  // v0.8.5 — 让「真实模型名」可以直接调用。
+  // CodeBuddy 是统一 OpenAI 兼容网关，deepseek-* 这类模型名裸调时会被下面的前缀规则
+  // 推成 openrouter（`[/^deepseek-/, "openrouter"]`），而用户通常并没有 openrouter 连接
+  // → 直接失败，只能用 cbcn/xxx 带前缀。这里把 CodeBuddy CN 的真实模型名登记为内置别名，
+  // 裸名即可命中。需要走 intl 账号时用 cbai/ 前缀，或在 Providers 页加用户别名覆盖
+  // （getModelInfoCore 里用户别名优先于内置别名）。
+  "deepseek-v4.1-flash": "cbcn/deepseek-v4.1-flash",
+  "deepseek-v4-pro": "cbcn/deepseek-v4-pro",
 };
 
 /**
