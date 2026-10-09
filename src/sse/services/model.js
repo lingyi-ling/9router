@@ -1,7 +1,27 @@
 // Re-export from open-sse with localDb integration
-import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
-import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
+import { getModelAliases, getComboByName, getProviderNodes, getProviderConnections } from "@/lib/localDb";
+import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore, resolveModelProviderFallback } from "open-sse/services/model.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
+
+// v0.8.6 裸名兜底用的「有活跃连接的提供商」集合，短 TTL 缓存：
+// 裸名请求很多，不能每次都全表查 providerConnections。
+const ACTIVE_PROVIDERS_TTL_MS = 5000;
+let activeProvidersCache = { at: 0, ids: new Set() };
+
+async function getActiveProviderIdSet() {
+  const now = Date.now();
+  if (now - activeProvidersCache.at < ACTIVE_PROVIDERS_TTL_MS) return activeProvidersCache.ids;
+  let ids = new Set();
+  try {
+    const conns = await getProviderConnections({ isActive: true });
+    ids = new Set(conns.map((c) => c.provider));
+  } catch {
+    // 读库失败按「无连接」处理 → 兜底不生效，保持原有失败语义（fail-safe）
+    ids = new Set();
+  }
+  activeProvidersCache = { at: now, ids };
+  return ids;
+}
 
 // Local provider alias overrides (HMR-friendly, applied on top of open-sse map)
 const LOCAL_PROVIDER_ALIASES = {
@@ -75,7 +95,16 @@ export async function getModelInfo(modelStr) {
     return { provider: null, model: parsed.model };
   }
 
-  return getModelInfoCore(modelStr, getModelAliases);
+  const info = await getModelInfoCore(modelStr, getModelAliases);
+
+  // v0.8.6 裸名兜底：推断出的 provider 没有活跃连接时，改选「确实发布该模型且有连接」的
+  // provider。只作用于裸名（带前缀 / combo / provider-node 的路径在前面已各自返回）。
+  const fallbackProvider = resolveModelProviderFallback({
+    provider: info.provider,
+    model: info.model,
+    activeProviderIds: await getActiveProviderIdSet(),
+  });
+  return fallbackProvider ? { provider: fallbackProvider, model: info.model } : info;
 }
 
 /**

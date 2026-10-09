@@ -19,15 +19,46 @@ for (const entry of REGISTRY) {
 
 const BUILTIN_MODEL_ALIASES = {
   "grok-build": "gcli/grok-build",
-  // v0.8.5 — 让「真实模型名」可以直接调用。
-  // CodeBuddy 是统一 OpenAI 兼容网关，deepseek-* 这类模型名裸调时会被下面的前缀规则
-  // 推成 openrouter（`[/^deepseek-/, "openrouter"]`），而用户通常并没有 openrouter 连接
-  // → 直接失败，只能用 cbcn/xxx 带前缀。这里把 CodeBuddy CN 的真实模型名登记为内置别名，
-  // 裸名即可命中。需要走 intl 账号时用 cbai/ 前缀，或在 Providers 页加用户别名覆盖
-  // （getModelInfoCore 里用户别名优先于内置别名）。
-  "deepseek-v4.1-flash": "cbcn/deepseek-v4.1-flash",
-  "deepseek-v4-pro": "cbcn/deepseek-v4-pro",
 };
+
+// modelId → 注册表里发布它的条目（单一数据源，用于裸名兜底解析）
+const MODEL_PROVIDER_INDEX = new Map();
+for (const entry of REGISTRY) {
+  for (const m of entry.models || []) {
+    if (!m?.id) continue;
+    const list = MODEL_PROVIDER_INDEX.get(m.id);
+    if (list) list.push(entry);
+    else MODEL_PROVIDER_INDEX.set(m.id, [entry]);
+  }
+}
+
+// 只把「对话类」提供商作为兜底候选：显式声明了 serviceKinds 且不含 llm 的（tts/stt/image 等）
+// 一律排除；未声明 serviceKinds 的视为对话网关（如 codebuddy-cn / deepseek）。
+function isChatCapableEntry(entry) {
+  return !entry.serviceKinds || entry.serviceKinds.includes("llm");
+}
+
+/**
+ * v0.8.6 裸模型名的「按连接兜底」。
+ *
+ * 背景：裸名（如 deepseek-v4.1-flash）先经前缀规则推断（`/^deepseek-/ → openrouter`），
+ * 若用户没有该提供商的连接，请求会以 404「No active credentials for provider」失败，
+ * 只能写死前缀（cbcn/xxx）才可用。
+ *
+ * 规则：仅当【推断出的 provider 没有活跃连接】时，改选「注册表确实发布该模型、且用户有
+ * 活跃连接」的 provider（按 registry priority 升序）。推断结果可用时原样返回，不动。
+ * 无候选返回 null，由调用方保持原结果（不改变既有失败语义）。
+ *
+ * 纯函数（只依赖注册表 + 传入的连接集合），便于单测。
+ */
+export function resolveModelProviderFallback({ provider, model, activeProviderIds }) {
+  if (!provider || !model || !activeProviderIds?.size) return null;
+  if (activeProviderIds.has(provider)) return null; // 推断结果可用 → 不动
+  const candidates = (MODEL_PROVIDER_INDEX.get(model) || [])
+    .filter((e) => isChatCapableEntry(e) && activeProviderIds.has(e.id))
+    .sort((a, b) => (a.priority || 999) - (b.priority || 999));
+  return candidates[0]?.id || null;
+}
 
 /**
  * Resolve provider alias to provider ID
